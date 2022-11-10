@@ -1,6 +1,6 @@
 use std::{fmt, time::Instant};
 
-#[derive(Debug, Default, Copy, Clone)]
+#[derive(Debug, Default)]
 struct Node {
     idx: usize,
     cost: usize,
@@ -32,13 +32,14 @@ impl fmt::Display for ANSII {
     }
 }
 
-#[derive(Debug, Default, Copy, Clone)]
+#[derive(Debug, Default)]
 enum Direction {
     UP,
     DOWN,
     LEFT,
     RIGHT,
-    #[default] NONE
+    TARGET,
+    #[default] UNKNOWN
 }
 
 impl fmt::Display for Direction {
@@ -51,7 +52,8 @@ impl fmt::Display for Direction {
                 Self::DOWN => "↓",
                 Self::LEFT => "←",
                 Self::RIGHT => "→",
-                Self::NONE => "☩"
+                Self::TARGET => "☩",
+                Self::UNKNOWN => "■"
             }
         )
     }
@@ -73,14 +75,14 @@ fn main() {
     }
 
     let now = Instant::now();
-    astar(&mut maze, start, end);
+    astar(&mut maze, start, end, false);
     let elapsed = now.elapsed();
 
     print_maze(&maze);
     println!("\nTime: {:.2?}", elapsed);
 }
 
-fn astar(maze: &mut Grid, (start_x, start_y): (usize, usize), (target_x, target_y): (usize, usize)) {
+fn astar(maze: &mut Grid, (start_x, start_y): (usize, usize), (target_x, target_y): (usize, usize), diagonal: bool) {
     let mut open_list: Vec<usize> = Vec::new();
     let mut closed_list: Vec<usize> = Vec::new();
 
@@ -89,32 +91,34 @@ fn astar(maze: &mut Grid, (start_x, start_y): (usize, usize), (target_x, target_
     open_list.push(get_idx(start_x, start_y));
 
     while !open_list.is_empty() {
-        let (open_idx, current_idx) = min_by_fcost(&maze, &open_list);
-        let mut current_node = maze[current_idx];
+        let (open_idx, mut current_idx) = min_by_fcost(&maze, &open_list);
         open_list.remove(open_idx);
         
         if current_idx == target {
             maze[current_idx].cost = 0;
-            while let Some(idx) = current_node.prev {
-                let diff = (current_node.idx as isize) - (idx as isize);
-                let dir = match diff {
-                    10 => { Direction::DOWN },
-                    -10 => { Direction::UP },
-                    1 => { Direction::RIGHT },
-                    -1 => { Direction::LEFT },
-                    _ => {Direction::NONE}
+            maze[current_idx].direction = Direction::TARGET;
+            while let Some(idx) = maze[current_idx].prev {
+                let diff = (current_idx as isize) - (idx as isize);
+                let dir = if diagonal { Direction::UNKNOWN } else { 
+                    match diff {
+                        10  =>  { Direction::DOWN },
+                        -10 =>  { Direction::UP },
+                        1   =>  { Direction::RIGHT },
+                        -1  =>  { Direction::LEFT },
+                        _   =>  { Direction::UNKNOWN }
+                    }
                 };
                 maze[idx].cost = 0;
                 maze[idx].direction = dir;
-                current_node = maze[idx];
+                current_idx = idx;
             };
             return;
         } else {
             closed_list.push(current_idx);
 
-            for adj in get_adjacent(current_idx) {
+            for adj in get_adjacent(current_idx, diagonal) {
                 if !closed_list.contains(&adj) {
-                    let cost_through_current = current_node.g_cost + maze[adj].cost;
+                    let cost_through_current = maze[current_idx].g_cost + maze[adj].cost;
                     if !open_list.contains(&adj) {
                         maze[adj].g_cost = cost_through_current;
                         maze[adj].prev = Some(current_idx);
@@ -131,22 +135,25 @@ fn astar(maze: &mut Grid, (start_x, start_y): (usize, usize), (target_x, target_
     }
 }
 
-fn get_adjacent<'a>(idx: usize) -> Vec<usize> {
-    let mut adjacent = Vec::new();
-    if idx > 10 {
-        adjacent.push(idx - 10)
-    }
-    if idx < 90 {
-        adjacent.push(idx + 10)
-    }
-    if idx % 10 != 0 {
-        adjacent.push(idx - 1)
-    }
-    if idx % 10 != 9 {
-        adjacent.push(idx + 1)
-    }
+fn get_adjacent<'a>(idx: usize, diagonal: bool) -> Vec<usize> {
+    let x = (idx % 10) as i8;
+    let y = (idx / 10) as i8;
+    let mut adj = vec![
+        (x, y - 1),
+        (x, y + 1),
+        (x - 1, y),
+        (x + 1, y)
+    ];
 
-    adjacent
+    if diagonal {
+        adj.push((x + 1, y + 1));
+        adj.push((x - 1, y + 1));
+        adj.push((x + 1, y - 1));
+        adj.push((x + 1, y + 1));
+    }
+    let valid_neighbours: Vec<usize> = adj.iter().filter(|(x, y)| x >= &0 && x <= &9 && y >= &0 && y <= &9).map(|(x, y)| get_idx(*x as usize, *y as usize)).collect();
+
+    valid_neighbours
 }
 
 fn calc_h_cost(start: (usize, usize), end: (usize, usize)) -> usize {
